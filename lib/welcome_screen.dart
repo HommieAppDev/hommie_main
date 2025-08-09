@@ -61,13 +61,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             child: Image.asset(
               'assets/welcome_background.png',
               fit: BoxFit.contain, // so your built-in text fits
-              alignment: Alignment.center,
+              alignment: Alignment.topCenter,
             ),
           ),
 
           // Clouds at the top
           Positioned(
-            top: 40, // nudge down if you like
+            top: 30, // nudge down if you like
             left: 0,
             right: 0,
             child: Opacity(

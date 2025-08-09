@@ -27,6 +27,48 @@
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
 		};
+		D2D0874F2E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = D3623D441D45E15202B29F0C04CDBC97;
+			remoteInfo = geocoding_ios;
+		};
+		D2D087512E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = CB5F229A2342306EC58B4866935B5199;
+			remoteInfo = "geocoding_ios-geocoding_ios_privacy";
+		};
+		D2D087532E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = 502E20F09A7CAFBD1DE1AA882DCC550C;
+			remoteInfo = geolocator_apple;
+		};
+		D2D087552E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = FA845F80B3847B22ACF63FD7E64E6D03;
+			remoteInfo = "geolocator_apple-geolocator_apple_privacy";
+		};
+		D2D087572E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = C39BE06027F24EB0328A76E7507FA463;
+			remoteInfo = package_info_plus;
+		};
+		D2D087592E46E2F20033C133 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = 64FB8D36F3D5FD1F4E08A8CB92BCD154;
+			remoteInfo = "package_info_plus-package_info_plus_privacy";
+		};
 		D2F92C052E41866000A4A53F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D2F92BD62E41866000A4A53F /* Pods.xcodeproj */;
@@ -490,6 +532,10 @@
 				D2F92C302E41866000A4A53F /* FirebaseFirestoreInternal_Privacy.bundle */,
 				D2F92C322E41866000A4A53F /* FirebaseSharedSwift.framework */,
 				D2F92C342E41866000A4A53F /* FirebaseStorage.framework */,
+				D2D087502E46E2F20033C133 /* geocoding_ios.framework */,
+				D2D087522E46E2F20033C133 /* geocoding_ios_privacy.bundle */,
+				D2D087542E46E2F20033C133 /* geolocator_apple.framework */,
+				D2D087562E46E2F20033C133 /* geolocator_apple_privacy.bundle */,
 				D2F92C362E41866000A4A53F /* GoogleUtilities.framework */,
 				D2F92C382E41866000A4A53F /* GoogleUtilities_Privacy.bundle */,
 				D2F92C3A2E41866000A4A53F /* grpcpp.framework */,
@@ -505,6 +551,8 @@
 				D2F92C4E2E41866000A4A53F /* leveldb_Privacy.bundle */,
 				D2F92C502E41866000A4A53F /* nanopb.framework */,
 				D2F92C522E41866000A4A53F /* nanopb_Privacy.bundle */,
+				D2D087582E46E2F20033C133 /* package_info_plus.framework */,
+				D2D0875A2E46E2F20033C133 /* package_info_plus_privacy.bundle */,
 				D2F92C542E41866000A4A53F /* Pods_Runner.framework */,
 				D2F92C562E41866000A4A53F /* Pods_RunnerTests.framework */,
 				D2F92C582E41866000A4A53F /* RecaptchaInterop.framework */,
@@ -602,6 +650,48 @@
 /* End PBXProject section */
 
 /* Begin PBXReferenceProxy section */
+		D2D087502E46E2F20033C133 /* geocoding_ios.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = geocoding_ios.framework;
+			remoteRef = D2D0874F2E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D2D087522E46E2F20033C133 /* geocoding_ios_privacy.bundle */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.cfbundle;
+			path = geocoding_ios_privacy.bundle;
+			remoteRef = D2D087512E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D2D087542E46E2F20033C133 /* geolocator_apple.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = geolocator_apple.framework;
+			remoteRef = D2D087532E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D2D087562E46E2F20033C133 /* geolocator_apple_privacy.bundle */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.cfbundle;
+			path = geolocator_apple_privacy.bundle;
+			remoteRef = D2D087552E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D2D087582E46E2F20033C133 /* package_info_plus.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = package_info_plus.framework;
+			remoteRef = D2D087572E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D2D0875A2E46E2F20033C133 /* package_info_plus_privacy.bundle */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.cfbundle;
+			path = package_info_plus_privacy.bundle;
+			remoteRef = D2D087592E46E2F20033C133 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 		D2F92C062E41866000A4A53F /* absl.framework */ = {
 			isa = PBXReferenceProxy;
 			fileType = wrapper.framework;
@@ -1004,9 +1094,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

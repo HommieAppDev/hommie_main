@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+.env
 
 # IntelliJ related
 *.iml
@@ -47,3 +48,11 @@ app.*.map.json
 # iOs & Secrets
 ios/Pods/
 firebase_options.dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+

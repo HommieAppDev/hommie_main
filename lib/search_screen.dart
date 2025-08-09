@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:hommie/search_results_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -10,13 +9,14 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  String? selectedPrice;
-  String? selectedBeds;
-  String? selectedBaths;
+  String? selectedPrice; // e.g., "Up to $500k"
+  String? selectedBeds;  // e.g., "3" or "10+"
+  String? selectedBaths; // e.g., "2" or "10+"
   String locationQuery = '';
   double radius = 25.0;
   Position? currentPosition;
   bool useCurrentLocation = false;
+  bool _locating = false;
 
   final List<String> priceOptions = [
     'Up to \$100k', 'Up to \$200k', 'Up to \$300k', 'Up to \$400k', 'Up to \$500k',
@@ -29,6 +29,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _openAdvancedSearch() async {
     final result = await Navigator.pushNamed(context, '/advanced-search');
+    if (!mounted) return;
     if (result is Map) {
       setState(() {
         selectedBeds = result['beds'] == 11 ? '10+' : result['beds']?.toString();
@@ -38,8 +39,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _determinePosition() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    setState(() => _locating = true);
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
+      setState(() => _locating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location services are disabled.')),
+      );
       await Geolocator.openLocationSettings();
       return;
     }
@@ -48,28 +55,53 @@ class _SearchScreenState extends State<SearchScreen> {
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       permission = await Geolocator.requestPermission();
       if (permission != LocationPermission.whileInUse && permission != LocationPermission.always) {
+        setState(() => _locating = false);
         return;
       }
     }
 
     final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
 
+    if (!mounted) return;
     setState(() {
       currentPosition = position;
-      useCurrentLocation = true;
+      _locating = false;
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Location retrieved!')),
+    );
+  }
+
+  // Converts "Up to $500k" => "500000" (as a string) for downstream parsing
+  String? _priceToMaxDollars(String? label) {
+    if (label == null) return null;
+    final lower = label.toLowerCase();
+    if (lower.contains('10mm+')) return null; // treat as no cap
+    // Pull digits out, then scale if “k” or “mm” present
+    final digits = RegExp(r'\d+').allMatches(lower).map((m) => m.group(0)).join();
+    if (digits.isEmpty) return null;
+
+    int base = int.parse(digits);
+    if (lower.contains('mm')) {
+      base *= 1000000;
+    } else if (lower.contains('k')) {
+      base *= 1000;
+    }
+    return base.toString();
   }
 
   void _submitSearch() {
+    // We pass simple args; SearchResultsScreen already parses them.
     Navigator.pushNamed(
       context,
       '/search-results',
       arguments: {
         'query': useCurrentLocation ? null : locationQuery.trim(),
         'radius': useCurrentLocation ? radius : null,
-        'price': selectedPrice,
+        'price': _priceToMaxDollars(selectedPrice), // purely a max cap
         'beds': selectedBeds,
         'baths': selectedBaths,
         'latitude': currentPosition?.latitude,
@@ -80,6 +112,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isCityZipEnabled = !useCurrentLocation;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Search Listings'),
@@ -97,10 +131,12 @@ class _SearchScreenState extends State<SearchScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
-                enabled: !useCurrentLocation,
+                enabled: isCityZipEnabled,
                 decoration: InputDecoration(
                   hintText: 'Search by city or zip...',
                   prefixIcon: const Icon(Icons.search),
+                  filled: !isCityZipEnabled,
+                  fillColor: isCityZipEnabled ? null : Colors.grey.shade100,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8.0),
                   ),
@@ -112,12 +148,16 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: [
                   Checkbox(
                     value: useCurrentLocation,
-                    onChanged: (val) {
+                    onChanged: (val) async {
                       setState(() => useCurrentLocation = val ?? false);
-                      if (val == true) _determinePosition();
+                      if (val == true) {
+                        await _determinePosition();
+                      }
                     },
                   ),
                   const Text("Use My Location"),
+                  const SizedBox(width: 12),
+                  if (_locating) const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                 ],
               ),
               const SizedBox(height: 8),
@@ -128,12 +168,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 divisions: 19,
                 value: radius,
                 label: '${radius.round()} mi',
-                onChanged: useCurrentLocation
-                    ? (val) => setState(() => radius = val)
-                    : null,
+                onChanged: useCurrentLocation ? (val) => setState(() => radius = val) : null,
               ),
               const SizedBox(height: 16),
-              const Text('Price Range'),
+
+              const Text('Price (max)'),
               DropdownButton<String>(
                 value: selectedPrice,
                 hint: const Text('Select Price'),
@@ -145,7 +184,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 )).toList(),
               ),
               const SizedBox(height: 16),
-              const Text('Bedrooms'),
+
+              const Text('Bedrooms (min)'),
               DropdownButton<String>(
                 value: selectedBeds,
                 hint: const Text('Select Bedrooms'),
@@ -157,7 +197,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 )).toList(),
               ),
               const SizedBox(height: 16),
-              const Text('Bathrooms'),
+
+              const Text('Bathrooms (min)'),
               DropdownButton<String>(
                 value: selectedBaths,
                 hint: const Text('Select Bathrooms'),
@@ -168,11 +209,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Text(bath),
                 )).toList(),
               ),
+
               const SizedBox(height: 16),
               TextButton(
                 onPressed: _openAdvancedSearch,
                 child: const Text('Advanced Search'),
               ),
+
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
