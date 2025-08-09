@@ -1,19 +1,20 @@
+// lib/search_results_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
 
-import 'data/simplyrets_api.dart';
+import 'data/rentcast_api.dart';
 import 'listing_detail_screen.dart';
 
 class SearchResultsScreen extends StatefulWidget {
   final String? cityOrZip;
   final double? radiusMiles;
-  final String? price;
-  final String? beds;
-  final String? baths;
-  final dynamic position; // not used in demo dataset
+  final String? price; // "Up to $500k" style
+  final String? beds;  // "3" or "10+"
+  final String? baths; // "2" or "10+"
+  final Position? position;
 
   const SearchResultsScreen({
     super.key,
@@ -30,123 +31,175 @@ class SearchResultsScreen extends StatefulWidget {
 }
 
 class _SearchResultsScreenState extends State<SearchResultsScreen> {
+  final _api = RentcastApi();
+  Set<String> favoritedListingIds = {};
   late Future<List<Map<String, dynamic>>> _future;
-  Set<String> _favoritedIds = {};
 
   @override
   void initState() {
     super.initState();
-    _future = _fetchResults();
     _loadFavorites();
+    _future = _fetchResults();
   }
 
   Future<void> _loadFavorites() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final data = doc.data();
-      setState(() {
-        _favoritedIds = Set<String>.from(data?['favorites'] ?? []);
-      });
-    } catch (_) {}
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final data = doc.data();
+    setState(() {
+      favoritedListingIds = Set<String>.from(data?['favorites'] ?? []);
+    });
   }
 
-  Future<void> _toggleFavorite(String mlsId) async {
+  Future<void> _toggleFavorite(String listingId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     setState(() {
-      _favoritedIds.contains(mlsId) ? _favoritedIds.remove(mlsId) : _favoritedIds.add(mlsId);
+      if (favoritedListingIds.contains(listingId)) {
+        favoritedListingIds.remove(listingId);
+      } else {
+        favoritedListingIds.add(listingId);
+      }
     });
 
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
-      {'favorites': _favoritedIds.toList()},
+      {'favorites': favoritedListingIds.toList()},
       SetOptions(merge: true),
     );
   }
 
+  int? _parseMaxPrice(String? label) {
+    if (label == null) return null;
+    // examples: "Up to $500k", "Up to $1MM", "$10MM+"
+    final cleaned = label.replaceAll(',', '').toLowerCase();
+    if (cleaned.contains('mm')) {
+      final numStr = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+      if (numStr.isEmpty) return null;
+      final millions = int.tryParse(numStr);
+      return millions != null ? millions * 1000000 : null;
+    }
+    final digits = cleaned.replaceAll(RegExp(r'[^\d]'), '');
+    return digits.isEmpty ? null : int.tryParse(digits);
+  }
+
+  int? _parseMin(String? s) {
+    if (s == null) return null;
+    final t = s.replaceAll('+', '').trim();
+    return int.tryParse(t);
+  }
+
   Future<List<Map<String, dynamic>>> _fetchResults() async {
-    final api = SimplyRetsApi();
+    // City vs ZIP
+    final input = widget.cityOrZip?.trim();
+    final isZip = (input != null && int.tryParse(input) != null);
+    final city = (!isZip && input != null && input.isNotEmpty) ? input : null;
+    final zip = (isZip) ? input : null;
 
-    final String? q = (widget.cityOrZip?.trim().isNotEmpty ?? false) ? widget.cityOrZip!.trim() : null;
-    final int? maxPrice = _parseInt(widget.price);
-    final int? minBeds = _parseInt(widget.beds);
-    final int? minBaths = _parseInt(widget.baths);
+    final maxPrice = _parseMaxPrice(widget.price);
+    final bedsMin = _parseMin(widget.beds);
+    final bathsMin = _parseMin(widget.baths);
 
-    final results = await api.search(
-      q: q,
-      maxprice: maxPrice,
-      minbeds: minBeds,
-      minbaths: minBaths,
-      status: 'Active',
-      limit: 50,
+    final results = await _api.saleListings(
+      city: city,
+      zip: zip,
+      bedsMin: bedsMin,
+      bathsMin: bathsMin,
+      priceMax: maxPrice,
+      latitude: widget.position?.latitude,
+      longitude: widget.position?.longitude,
+      radiusMiles: widget.radiusMiles,
+      limit: 40,
     );
 
+    // Normalize a few fields we use in UI & details screen
     return results.map<Map<String, dynamic>>((raw) {
-      final address = raw['address'] as Map<String, dynamic>?;
-      final mlsId = (raw['mlsId'] ?? raw['listingId'] ?? raw['id'] ?? '').toString();
-      final photos = (raw['photos'] is List) ? List<String>.from(raw['photos']) : const <String>[];
-      final price = raw['listPrice'];
-      final beds = raw['property']?['bedrooms'] ?? raw['beds'];
-      final baths = raw['property']?['bathsFull'] ?? raw['baths'];
-      final sqft = raw['property']?['area'] ?? raw['livingArea'];
-      final addr = address?['full'] ??
-          [
-            address?['streetNumber'],
-            address?['streetName'],
-            address?['city'],
-            address?['state'],
-            address?['postalCode'],
-          ].where((e) => (e != null && e.toString().trim().isNotEmpty)).join(' ');
+      final id = _extractId(raw);
+      final address = _extractAddress(raw);
+      final photos = _extractPhotos(raw);
+      final listPrice = raw['listPrice'] ?? raw['price'] ?? raw['listPriceCurrent'];
 
       return {
-        'mlsId': mlsId,
+        'id': id,
+        'mlsId': raw['mlsId'] ?? raw['listingId'] ?? id,
+        'address': address,
+        'listPrice': listPrice,
+        'property': Map<String, dynamic>.from(raw['property'] ?? {}),
         'photos': photos,
-        'listPrice': price,
-        'beds': beds,
-        'baths': baths,
-        'sqft': sqft,
-        'address': addr,
-        ...raw, // keep raw for details
+        // keep full original payload for details
+        ...raw,
       };
     }).toList();
   }
 
-  // ---- helpers ----
-  int? _parseInt(String? input) {
-    if (input == null) return null;
-    final digits = RegExp(r'\d+').allMatches(input).map((m) => m.group(0)).join();
-    if (digits.isEmpty) return null;
-    return int.tryParse(digits);
+  String _extractId(Map<String, dynamic> m) {
+    final id = m['listingId'] ?? m['mlsId'] ?? m['id'];
+    if (id != null) return id.toString();
+    // fallback hash of address+price
+    final addr = jsonEncode(m['address'] ?? {});
+    final price = (m['listPrice'] ?? m['price'] ?? '').toString();
+    return base64Url.encode(utf8.encode('$addr|$price'));
+  }
+
+  Map<String, dynamic> _extractAddress(Map<String, dynamic> m) {
+    final a = (m['address'] is Map) ? Map<String, dynamic>.from(m['address']) : <String, dynamic>{};
+    if (a.isNotEmpty) return a;
+
+    // try a few alternates
+    final full = m['addressFull'] ?? m['fullAddress'];
+    if (full is String) return {'full': full};
+
+    // build from parts if available
+    return {
+      'streetNumber': m['streetNumber'] ?? m['street_number'],
+      'streetName': m['streetName'] ?? m['street'],
+      'city': m['city'],
+      'state': m['state'],
+      'postalCode': m['zipCode'] ?? m['postalCode'],
+      'full': null,
+    };
+  }
+
+  List<String> _extractPhotos(Map<String, dynamic> m) {
+    final p = m['photos'];
+    if (p is List) {
+      return p.whereType<String>().toList();
+    }
+    if (m['photo'] is String) return [m['photo'] as String];
+    if (m['imageUrl'] is String) return [m['imageUrl'] as String];
+    return const <String>[];
   }
 
   String _priceText(dynamic value) {
     if (value == null) return '\$—';
     try {
       final n = (value is num) ? value.toInt() : int.parse(value.toString());
-      return '\$${_formatWithCommas(n)}';
+      final s = n.toString();
+      final r = s.split('').reversed.toList();
+      final out = StringBuffer();
+      for (int i = 0; i < r.length; i++) {
+        if (i != 0 && i % 3 == 0) out.write(',');
+        out.write(r[i]);
+      }
+      return '\$${out.toString().split('').reversed.join()}';
     } catch (_) {
       return '\$${value.toString()}';
     }
   }
 
-  String _formatWithCommas(int n) {
-    final s = n.toString();
-    final r = s.split('').reversed.toList();
-    final out = StringBuffer();
-    for (int i = 0; i < r.length; i++) {
-      if (i != 0 && i % 3 == 0) out.write(',');
-      out.write(r[i]);
-    }
-    return out.toString().split('').reversed.join();
-  }
-
-  Map<String, String> _imageAuthHeaders() {
-    final user = dotenv.env['SIMPLYRETS_USER'] ?? 'simplyrets';
-    final pass = dotenv.env['SIMPLYRETS_PASS'] ?? 'simplyrets';
-    final token = base64Encode(utf8.encode('$user:$pass'));
-    return {'Authorization': 'Basic $token'};
+  String _addressText(Map<String, dynamic>? a) {
+    if (a == null) return 'Unknown address';
+    final full = a['full'];
+    if (full is String && full.trim().isNotEmpty) return full;
+    final parts = [
+      a['streetNumber'],
+      a['streetName'],
+      a['city'],
+      a['state'],
+      a['postalCode'],
+    ].where((e) => e != null && e.toString().trim().isNotEmpty).join(' ');
+    return parts.isEmpty ? 'Unknown address' : parts;
   }
 
   @override
@@ -168,120 +221,88 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             return const Center(child: Text('No listings found.'));
           }
 
-          final headers = _imageAuthHeaders();
-
           return ListView.builder(
             itemCount: listings.length,
-            itemBuilder: (context, i) {
-              final l = listings[i];
-              final mlsId = (l['mlsId'] ?? '').toString();
-              final isFav = _favoritedIds.contains(mlsId);
-              final photos = (l['photos'] is List<String>) ? l['photos'] as List<String> : const <String>[];
-              final img = photos.isNotEmpty ? photos.first : null;
+            itemBuilder: (context, index) {
+              final l = listings[index];
+              final id = (l['id'] ?? '').toString();
+              final isFav = favoritedListingIds.contains(id);
 
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                elevation: 3,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Photo
-                    AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: img != null
-                          ? Image.network(
-                              img,
-                              headers: headers, // <-- required for SimplyRETS photos
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
+              final addressText = _addressText(l['address'] as Map<String, dynamic>?);
+              final price = _priceText(l['listPrice']);
+              final photos = (l['photos'] as List<String>? ?? const <String>[]);
+              final heroTag = 'listing-photo-$id';
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => ListingDetailsScreen(listing: l)),
+                  );
+                },
+                child: Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  clipBehavior: Clip.antiAlias,
+                  elevation: 4,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // PHOTO
+                      SizedBox(
+                        height: 200,
+                        width: double.infinity,
+                        child: photos.isEmpty
+                            ? Container(
                                 color: Colors.grey.shade200,
                                 alignment: Alignment.center,
-                                child: const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+                                child: const Icon(Icons.photo, size: 48, color: Colors.grey),
+                              )
+                            : Hero(
+                                tag: heroTag,
+                                child: Image.network(
+                                  photos.first,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.grey.shade200,
+                                    alignment: Alignment.center,
+                                    child: const Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                                  ),
+                                ),
                               ),
-                            )
-                          : Container(
-                              color: Colors.grey.shade200,
-                              alignment: Alignment.center,
-                              child: const Icon(Icons.photo, size: 40, color: Colors.grey),
-                            ),
-                    ),
-
-                    // Info rows
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 8, 8),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left block
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(_priceText(l['listPrice']),
-                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  (l['address'] ?? 'Unknown address').toString(),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: Colors.grey.shade700),
-                                ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 14,
-                                  children: [
-                                    if (l['beds'] != null) _chip('${l['beds']} bd', Icons.bed),
-                                    if (l['baths'] != null) _chip('${l['baths']} ba', Icons.bathtub),
-                                    if (l['sqft'] != null) _chip('${l['sqft']} sqft', Icons.square_foot),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Favorite button
-                          IconButton(
-                            icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
-                                color: isFav ? Colors.red : null),
-                            onPressed: mlsId.isEmpty ? null : () => _toggleFavorite(mlsId),
-                          ),
-                        ],
                       ),
-                    ),
 
-                    // Tap area to open details
-                    InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => ListingDetailsScreen(listing: l)),
-                        );
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.fromLTRB(14, 0, 14, 14),
-                        child: Text('View details', style: TextStyle(color: Colors.blue)),
+                      // TEXT + HEART
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(price, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 4),
+                                  Text(addressText, style: const TextStyle(color: Colors.black87)),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : null),
+                              onPressed: () => _toggleFavorite(id),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
               );
             },
           );
         },
       ),
-    );
-  }
-
-  Widget _chip(String text, IconData icon) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16),
-        const SizedBox(width: 4),
-        Text(text),
-      ],
     );
   }
 }

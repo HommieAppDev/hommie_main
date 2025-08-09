@@ -1,7 +1,5 @@
-// listing_detail_screen.dart
-import 'dart:convert';
+// lib/listing_detail_screen.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -21,6 +19,10 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
   int _photoIndex = 0;
   bool _savingVisited = false;
 
+  // comments
+  final _commentCtrl = TextEditingController();
+  bool _posting = false;
+
   @override
   void initState() {
     super.initState();
@@ -32,19 +34,18 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
         .toString();
   }
 
+  @override
+  void dispose() {
+    _commentCtrl.dispose();
+    super.dispose();
+  }
+
   List<String> _safePhotos(Map<String, dynamic> l) {
     final v = l['photos'];
     if (v is List) {
       return v.whereType<String>().toList();
     }
     return const <String>[];
-  }
-
-  Map<String, String> _imageAuthHeaders() {
-    final user = dotenv.env['SIMPLYRETS_USER'] ?? 'simplyrets';
-    final pass = dotenv.env['SIMPLYRETS_PASS'] ?? 'simplyrets';
-    final token = base64Encode(utf8.encode('$user:$pass'));
-    return {'Authorization': 'Basic $token'};
   }
 
   String _priceText(dynamic value) {
@@ -95,7 +96,6 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
 
     setState(() => _savingVisited = true);
     try {
-      // Store inside user doc as an array + map with lastVisitedAt
       final docRef =
           FirebaseFirestore.instance.collection('users').doc(user.uid);
 
@@ -103,14 +103,12 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
         final snap = await tx.get(docRef);
         final data = snap.data() ?? {};
         final List visited = List.from(data['visited'] ?? const []);
-        // keep unique mlsId
         if (!visited.contains(_mlsId)) visited.add(_mlsId);
 
         tx.set(
           docRef,
           {
             'visited': visited,
-            // optional: lastVisited map with timestamps
             'visitedMeta': {
               _mlsId: {
                 'lastVisitedAt': FieldValue.serverTimestamp(),
@@ -139,54 +137,78 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
     }
   }
 
+  Future<void> _postComment() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in to comment.')),
+      );
+      return;
+    }
+    final text = _commentCtrl.text.trim();
+    if (text.isEmpty || _mlsId.isEmpty) return;
+
+    setState(() => _posting = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('listings')
+          .doc(_mlsId)
+          .collection('comments')
+          .add({
+        'text': text,
+        'uid': user.uid,
+        'displayName': user.displayName ?? user.email ?? 'User',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      _commentCtrl.clear();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not post comment: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
+  }
+
   void _openGallery(int start) {
-    final headers = _imageAuthHeaders();
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.8),
       builder: (_) {
-        int index = start;
         final controller = PageController(initialPage: start);
         return GestureDetector(
           onTap: () => Navigator.pop(context),
-          child: Dismissible(
-            key: const ValueKey('gallery'),
-            direction: DismissDirection.down,
-            onDismissed: (_) => Navigator.pop(context),
-            child: Stack(
-              children: [
-                PageView.builder(
-                  controller: controller,
-                  itemCount: _photos.length,
-                  onPageChanged: (i) => index = i,
-                  itemBuilder: (_, i) => InteractiveViewer(
-                    child: Container(
-                      color: Colors.black,
-                      alignment: Alignment.center,
-                      child: Image.network(
-                        _photos[i],
-                        headers: headers,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.broken_image,
-                          color: Colors.white70,
-                          size: 80,
-                        ),
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: controller,
+                itemCount: _photos.length,
+                itemBuilder: (_, i) => InteractiveViewer(
+                  child: Container(
+                    color: Colors.black,
+                    alignment: Alignment.center,
+                    child: Image.network(
+                      _photos[i],
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.broken_image,
+                        color: Colors.white70,
+                        size: 80,
                       ),
                     ),
                   ),
                 ),
-                Positioned(
-                  right: 16,
-                  top: 40,
-                  child: IconButton(
-                    color: Colors.white,
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+              ),
+              Positioned(
+                right: 16,
+                top: 40,
+                child: IconButton(
+                  color: Colors.white,
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
@@ -195,7 +217,6 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final headers = _imageAuthHeaders();
     final l = widget.listing;
 
     final address = _address(l['address'] as Map<String, dynamic>?);
@@ -246,7 +267,6 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
                       onTap: () => _openGallery(i),
                       child: Image.network(
                         _photos[i],
-                        headers: headers,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: Colors.grey.shade200,
@@ -322,8 +342,87 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
               ),
             ),
 
-          // (Optional) More sections you can add later:
-          // - Schools, HOA, taxes, coordinates map, open house dates, etc.
+          const Divider(height: 24),
+
+          // --- COMMENTS HEADER ---
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+            child: Text('Comments', style: Theme.of(context).textTheme.titleMedium),
+          ),
+
+          // --- COMMENT INPUT ---
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _commentCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a comment...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    minLines: 1,
+                    maxLines: 4,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _posting ? null : _postComment,
+                  child: _posting
+                      ? const SizedBox(
+                          width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Post'),
+                ),
+              ],
+            ),
+          ),
+
+          // --- COMMENTS LIST ---
+          SizedBox(
+            height: 220,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: (_mlsId.isEmpty)
+                  ? const Stream.empty()
+                  : FirebaseFirestore.instance
+                      .collection('listings')
+                      .doc(_mlsId)
+                      .collection('comments')
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snapshot.data?.docs ?? const [];
+                if (docs.isEmpty) {
+                  return const Center(child: Text('No comments yet.'));
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 12),
+                  itemBuilder: (_, i) {
+                    final d = docs[i].data() as Map<String, dynamic>;
+                    final name = (d['displayName'] ?? 'User').toString();
+                    final text = (d['text'] ?? '').toString();
+                    return ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        child: Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        ),
+                      ),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(text),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+
           const SizedBox(height: 90), // keep space for FAB
         ],
       ),
